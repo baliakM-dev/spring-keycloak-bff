@@ -5,6 +5,22 @@ spring:
 server:
   port: 8080
 
+bff:
+  oauth2:
+    # Browser-facing Keycloak issuer/authorization base URL. Must match
+    # Keycloak's KC_HOSTNAME (see compose.yaml) - this is what ends up in
+    # the ID token's `iss` claim and is where the user's browser is
+    # redirected to log in.
+    browser-issuer-uri: ${KEYCLOAK_BROWSER_ISSUER_URI:http://localhost:8081/realms/bff-demo}
+    # Docker-internal (backend-container-facing) Keycloak base URL, used for
+    # the token/userinfo/JWK endpoints, which the backend calls directly
+    # (never via the browser).
+    backend-issuer-uri: ${KEYCLOAK_BACKEND_ISSUER_URI:http://localhost:8081/realms/bff-demo}
+    redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:5173/login/oauth2/code/bff-app}
+    # LOCAL DEVELOPMENT ONLY default - overridden by KEYCLOAK_CLIENT_SECRET
+    # in compose.yaml. Never a real/production secret.
+    client-secret: ${KEYCLOAK_CLIENT_SECRET:dev-only-placeholder-secret-CHANGE-ME}
+
 management:
   endpoints:
     web:

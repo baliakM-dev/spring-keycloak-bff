@@ -9,7 +9,25 @@
   "resetPasswordAllowed": false,
   "editUsernameAllowed": false,
   "bruteForceProtected": false,
-  "users": [],
+  "users": [
+    {
+      "username": "test-user",
+      "email": "test-user@example.invalid",
+      "emailVerified": true,
+      "enabled": true,
+      "firstName": "Test",
+      "lastName": "User",
+      "credentials": [
+        {
+          "type": "password",
+          "value": "test-user-local-dev-only",
+          "temporary": false
+        }
+      ],
+      "realmRoles": [],
+      "clientRoles": {}
+    }
+  ],
   "roles": {
     "realm": [],
     "client": {}
@@ -17,8 +35,8 @@
   "clients": [
     {
       "clientId": "bff-app",
-      "name": "Spring Boot BFF client (LOCAL DEVELOPMENT ONLY, unused in Stage 1)",
-      "description": "Confidential client prepared for a future OAuth2/OIDC Authorization Code flow between the Spring Boot BFF and Keycloak. Not wired into any login/callback/token exchange yet.",
+      "name": "Spring Boot BFF client (LOCAL DEVELOPMENT ONLY)",
+      "description": "Confidential client used by the Spring Boot BFF for the OAuth2/OIDC Authorization Code flow with Keycloak (Stage 2A).",
       "enabled": true,
       "protocol": "openid-connect",
       "publicClient": false,
@@ -30,7 +48,7 @@
       "directAccessGrantsEnabled": false,
       "serviceAccountsEnabled": false,
       "redirectUris": [
-        "http://localhost:8080/login/oauth2/code/bff-app"
+        "http://localhost:5173/login/oauth2/code/bff-app"
       ],
       "webOrigins": [
         "http://localhost:5173"

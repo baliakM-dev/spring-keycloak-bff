@@ -13,13 +13,20 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: {
-      // Stage 1: only the public API is proxied.
-      // Future stages will add "/oauth2", "/login" and "/logout" entries
-      // here (same shape) once server-side OAuth2 login is implemented -
-      // no rework of this proxy structure will be needed for that.
       "/api": {
         target: backendTarget,
         changeOrigin: true,
+      },
+      // Stage 2A: OAuth2/OIDC login endpoints, proxied to the backend BFF.
+      // changeOrigin is intentionally NOT set here (unlike /api above):
+      // rewriting the outbound Host header would make Spring's
+      // {baseUrl}-relative computations diverge from nginx's Host-preserving
+      // proxy_pass behavior used in Docker/production (frontend/nginx.conf).
+      "/oauth2": {
+        target: backendTarget,
+      },
+      "/login": {
+        target: backendTarget,
       },
     },
   },
