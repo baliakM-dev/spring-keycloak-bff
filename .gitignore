@@ -1,62 +1,105 @@
 # === Java / Maven ===
+
 target/
 *.class
 *.jar
 *.war
 !.mvn/wrapper/maven-wrapper.jar
 
+
 # === Java / Gradle ===
+
 .gradle/
 build/
 !gradle/wrapper/gradle-wrapper.jar
 
+
 # === Spring Boot ===
+
 *.log
 application-local.yml
 application-local.yaml
 application-local.properties
 
-# === Node / React / TypeScript (frontend) ===
+
+# === Node / React / TypeScript ===
+
 node_modules/
 dist/
 dist-ssr/
 build/
 .vite/
 *.tsbuildinfo
+
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
+
+# === Frontend tests / reports ===
+
+coverage/
+playwright-report/
+test-results/
+
+
 # === Environment & secrets ===
-# Never commit real credentials. Local Keycloak/dev-only values belong in
-# an explicitly-labeled dev config, not a loaded .env — see
-# .claude/skills/spring-keycloak-bff/references/security-invariants.md
+
 .env
 .env.*
 !.env.example
+
 *.pem
 *.p12
 *.jks
 *credentials*.json
 
+# Do not ignore explicitly committed local-development config
+# if it contains only disposable development values.
+
+
 # === Docker ===
+
 docker-compose.override.yml
 
+
 # === IDE ===
-# .idea/ is intentionally not ignored here — it has its own .idea/.gitignore
-# managing local-only files (workspace.xml, shelf/, etc.).
+
+.idea/
 .vscode/
+
 *.iws
 *.ipr
+*.iml
+
 out/
 
+
 # === OS ===
+
 .DS_Store
 Thumbs.db
 
+
 # === Logs ===
+
 logs/
 *.log
 
-.idea
+
+# === Claude Code ===
+
+# Keep .claude/agents and .claude/skills versioned.
+# Ignore only machine/user-specific Claude settings.
+
+.claude/settings.local.json
+
+
+# === Temporary files ===
+
+*.tmp
+*.temp
+*.swp
+*.swo
+*~
