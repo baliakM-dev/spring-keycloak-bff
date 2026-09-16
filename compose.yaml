@@ -41,12 +41,27 @@ services:
       KC_HEALTH_ENABLED: "true"
       KC_HTTP_ENABLED: "true"
       # Browser-facing hostname/port: Keycloak is reached by the host
-      # machine (and, in a later stage, redirected to by the browser) at
+      # machine (and, since Stage 2A, redirected to by the browser) at
       # http://localhost:8081 - never via the Docker-internal
       # "keycloak:8080" hostname, which only works container-to-container.
-      KC_HOSTNAME: localhost
-      KC_HOSTNAME_PORT: "8081"
-      KC_HOSTNAME_STRICT_HTTPS: "false"
+      #
+      # Stage 2A fix: previously this used the deprecated Hostname-V1
+      # options (bare KC_HOSTNAME + separate KC_HOSTNAME_PORT/
+      # KC_HOSTNAME_STRICT_HTTPS), which Keycloak 26 only applies as a
+      # legacy compatibility shim on top of its Hostname-V2 provider
+      # (startup log explicitly warns: "Hostname v1 options... still in
+      # use, please review your configuration"). In practice this caused
+      # an inconsistency: the token/JWKS endpoints and the ID token's
+      # `iss` claim correctly used http://localhost:8081, but the
+      # userinfo endpoint's own bearer-token issuer validation (reached
+      # backend-container-side via http://keycloak:8080) instead expected
+      # http://localhost:8080 - i.e. it derived the port from the actual
+      # internal request instead of the configured KC_HOSTNAME_PORT -
+      # which made every login fail with invalid_user_info_response /
+      # "Invalid token issuer". Using the single-URL Hostname-V2 syntax
+      # below makes the issuer consistent across all endpoints regardless
+      # of which internal or external URL was used to reach Keycloak.
+      KC_HOSTNAME: http://localhost:8081
     ports:
       - "8081:8080"
     volumes:
@@ -72,8 +87,27 @@ services:
       context: ./backend
     ports:
       - "8080:8080"
-    # No database, no OAuth2 client configuration yet - Stage 1 backend is
-    # self-contained and does not depend on Keycloak being ready.
+    environment:
+      # LOCAL DEVELOPMENT ONLY - disposable confidential-client secret,
+      # matching keycloak/import/bff-demo-realm.json's bff-app client.
+      # Backend-only: never passed to the frontend service/build.
+      KEYCLOAK_CLIENT_SECRET: dev-only-placeholder-secret-CHANGE-ME
+      # Browser-facing Keycloak base URL - must match the keycloak
+      # service's KC_HOSTNAME below; also Keycloak's fixed `iss` claim,
+      # used for ID token issuer validation.
+      KEYCLOAK_BROWSER_ISSUER_URI: http://localhost:8081/realms/bff-demo
+      # Docker-internal (backend-container-facing) Keycloak base URL, used
+      # for the token/userinfo/JWK endpoints - never handed to the browser.
+      KEYCLOAK_BACKEND_ISSUER_URI: http://keycloak:8080/realms/bff-demo
+      OAUTH2_REDIRECT_URI: http://localhost:5173/login/oauth2/code/bff-app
+    depends_on:
+      keycloak:
+        condition: service_healthy
+    # OAuth2 login is now configured: the backend needs Keycloak reachable
+    # (for the token/userinfo/JWK endpoints) once a login attempt occurs.
+    # It does not call Keycloak at startup (manual ClientRegistrationRepository,
+    # no issuer-uri autodiscovery), but requiring Keycloak to be healthy
+    # first keeps local startup ordering predictable for the login flow.
 
   frontend:
     build:
