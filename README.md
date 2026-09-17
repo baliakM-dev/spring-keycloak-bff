@@ -5,20 +5,24 @@ using Spring Boot, React and Keycloak.
 
 ## Current stage
 
-**Stage 2A — OAuth2/OIDC Authorization Code login through the Spring Boot
-BFF.**
+**Stage 2B — Authentication state, home redirect and a protected React
+route.**
 
-The BFF is now a real OAuth2/OIDC confidential client: React initiates
-login via a top-level browser navigation, Spring Boot performs the
-Authorization Code flow (with PKCE) against Keycloak, and a successful
-login establishes a server-side Spring application session. OAuth2 access
-and refresh tokens never leave the backend. See
+Building on Stage 2A's real Keycloak login: a successful login now
+deterministically returns to the frontend's public home page (`/`), which
+loads session state from an application-owned `GET /api/auth/me` view and
+shows the signed-in user's display name and a link to a protected React
+route (`/protected`). Session loss (an expired/invalidated backend
+session) produces a clear signed-out UI without redirect loops. React
+still never receives, stores or manages OAuth tokens - it only ever reads
+the small, explicit JSON shape from `/api/auth/me`. See
 [Not implemented in this stage](#not-implemented-in-this-stage) for what is
-intentionally still missing (`/api/auth/me`, role mapping, logout, etc.).
+intentionally still missing (logout, role mapping, SPA CSRF plumbing,
+etc.).
 
 ## Architecture
 
-### Current (Stage 2A)
+### Current (Stage 2A + 2B)
 
 ```text
 Browser / React
@@ -57,13 +61,27 @@ Boot. Concretely:
    endpoint.
 6. Spring Security establishes an authenticated `HttpSession`; the browser
    only receives the resulting `JSESSIONID` cookie.
+7. **(Stage 2B)** The request cache is disabled and the OAuth2 login
+   success handler has a fixed `defaultSuccessUrl("/", true)`, so the
+   browser is always redirected to the frontend's public home page next -
+   never to whatever URL happened to trigger authentication, and never
+   derived from a header or request parameter.
+8. **(Stage 2B)** React's `SessionProvider` calls the same-origin
+   `GET /api/auth/me` (session cookie only) to learn `loading` /
+   `authenticated` / `anonymous` / `error` state, renders the display name
+   and a link to `/protected` when authenticated, and re-checks on window
+   focus/tab-visibility change (not polling). `/protected` is a
+   client-side-routed page whose guard is UX only: it still always calls
+   the real, independently-enforced `GET /api/protected/hello`, and a 401
+   from any protected call (never a 403) clears stale state back to
+   `anonymous`.
 
 ### Not yet built (later stages)
 
-`/api/auth/me`, frontend user/profile display, USER/ADMIN role mapping,
-role-based authorization, logout, explicit refresh-token handling, session
-concurrency limits, brute-force tuning, MFA, registration, password reset,
-full SPA CSRF integration, business functionality. See
+Logout, USER/ADMIN role mapping, role-based authorization, explicit
+refresh-token handling, session concurrency limits, brute-force tuning,
+MFA, registration, password reset, full SPA CSRF integration, application-
+user persistence, business functionality. See
 [Not implemented in this stage](#not-implemented-in-this-stage).
 
 ## Stack
@@ -77,6 +95,7 @@ full SPA CSRF integration, business functionality. See
 | TypeScript | 6.0.3 | latest stable **6.x** - see rationale in git history; unchanged from Stage 1 |
 | Vite | 8.3.0 | |
 | Node.js | 24 (active LTS) | see `frontend/.nvmrc` and `engines` in `frontend/package.json` |
+| react-router | 8.4.0 | latest stable; minimal client-side routing for `/` and `/protected` only - not an authorization mechanism |
 | Keycloak | 26.7.3 | Docker image `keycloak/keycloak:26.7.3` |
 | PostgreSQL | 18.6 | Docker image `postgres:18.6-alpine`, Keycloak's datastore only |
 
@@ -184,18 +203,20 @@ beyond a throwaway local Keycloak container and must never be reused
 anywhere else.
 
 To log in: open http://localhost:5173, click **Login**, sign in with the
-credentials above. You will be redirected back to the app with an
-authenticated session; `GET /api/protected/hello` will then return
-`{"message":"authenticated"}`.
+credentials above. You will be redirected back to `/` with an authenticated
+session, showing "Signed in as Test User" and a link to `/protected`, which
+calls `GET /api/protected/hello` and displays `{"message":"authenticated"}`.
 
 ## URLs
 
 | Service | URL |
 |---|---|
-| Frontend | http://localhost:5173 |
+| Frontend home | http://localhost:5173 |
+| Frontend protected page | http://localhost:5173/protected (UX-only route guard; real enforcement is server-side) |
 | Backend | http://localhost:8080 |
 | Backend public endpoint | http://localhost:8080/api/public/hello (also via the frontend at `/api/public/hello`) |
-| Backend protected endpoint | http://localhost:8080/api/protected/hello (requires an authenticated session; also via the frontend at `/api/protected/hello`) |
+| Backend session view | http://localhost:8080/api/auth/me (also via the frontend at `/api/auth/me`; `200`/`{"authenticated":true,"user":{"id":...,"displayName":...}}` or `401`/`{"authenticated":false}`, always `Cache-Control: no-store`) |
+| Backend protected endpoint | http://localhost:8080/api/protected/hello (requires an authenticated session, returns a bare `401` when anonymous; also via the frontend at `/api/protected/hello`) |
 | Backend health | http://localhost:8080/actuator/health |
 | Login (starts OAuth2/OIDC flow) | http://localhost:5173/oauth2/authorization/bff-app |
 | Keycloak | http://localhost:8081 |
@@ -271,17 +292,45 @@ token, and does not contain the Keycloak client secret.
   documented here).
 - `GET /api/protected/hello` is covered by the same
   `anyRequest().authenticated()` default-deny rule as before; no
-  endpoint-specific security code. Anonymous requests never reach the
-  controller - they are handled entirely by Spring Security's standard,
-  framework-native unauthenticated-request behavior (a redirect towards
-  authentication), not custom exception handling.
+  endpoint-specific security code. **(Stage 2B)** Anonymous requests to it
+  (and any other authenticated-only `/api/**` path) now receive a bare
+  `401`, via a request-matcher-scoped
+  `defaultAuthenticationEntryPointFor(HttpStatusEntryPoint(401), "/api/**")`
+  - not Spring's default redirect-to-Keycloak behavior, which would be
+  indistinguishable from a network failure to a `fetch()` caller. Real
+  browser navigation to `/oauth2/authorization/bff-app` is unaffected: it
+  is served upstream by `OAuth2AuthorizationRequestRedirectFilter`, before
+  this entry point ever applies.
+- **(Stage 2B)** `GET /api/auth/me` is `permitAll()` at the filter-chain
+  level and performs its own authentication check inside the controller
+  (`@AuthenticationPrincipal OidcUser`), so it can return a real `401` JSON
+  body to an anonymous caller instead of participating in the redirect
+  behavior above. It returns only `id` (the OIDC `sub` claim, via
+  `getSubject()` - **not** `getName()`, since the client registration sets
+  `userNameAttributeName("preferred_username")`) and a `displayName`
+  (fallback: `name` claim → `preferred_username` claim → `sub`). It never
+  returns tokens, raw claims, email, roles, or a framework
+  `Authentication`/`OidcUser`/`OAuth2AuthorizedClient` object, and always
+  sets `Cache-Control: no-store`.
+- **(Stage 2B)** The HTTP request cache is disabled
+  (`requestCache(RequestCacheConfigurer::disable)`), so an anonymous hit on
+  a protected `/api/**` path can never populate a saved-request session
+  attribute that would otherwise hijack the post-login redirect target.
 - Spring Security's default CSRF protection is **untouched** - not
   disabled, not weakened. The OAuth2 login/callback endpoints
-  (`/oauth2/authorization/bff-app`, `/login/oauth2/code/bff-app`) are both
-  `GET`-only, so no CSRF exemption was needed.
+  (`/oauth2/authorization/bff-app`, `/login/oauth2/code/bff-app`) and
+  `/api/auth/me` are all `GET`-only, so no CSRF exemption was needed.
 - No CORS configuration was added anywhere: the frontend, `/api`,
   `/oauth2` and `/login` are all same-origin through the dev/Docker proxy
   in both environments.
+- **(Stage 2B)** React's session state (`frontend/src/auth/SessionContext.tsx`)
+  is kept in memory only (React state), never written to `localStorage`/
+  `sessionStorage`. It reacts specifically to a `401` (never a `403` or a
+  generic non-2xx) to clear stale authenticated state, never auto-triggers
+  login, and guards against a late/out-of-order `/api/auth/me` response
+  re-authenticating the UI after a more recent sign-out via a monotonic
+  generation counter (re-checked both before and after the response body
+  is parsed - see `SessionContext.test.tsx` for the regression test).
 
 ### Session cookie / production note
 
@@ -318,13 +367,12 @@ endpoint.
 
 ## Not implemented in this stage
 
-Explicitly out of scope for Stage 2A (planned for later stages):
+Explicitly out of scope for Stage 2B (planned for later stages):
 
-- `/api/auth/me`
-- Frontend user/profile display
+- Logout (no logout button/endpoint yet - deliberately not displayed)
+- Full SPA CSRF token plumbing (no unsafe-method frontend request needs it yet)
 - USER/ADMIN role mapping
 - Role-based application authorization
-- Logout
 - Explicit custom refresh-token handling
 - Session concurrency limits
 - Brute-force protection tuning
@@ -332,11 +380,12 @@ Explicitly out of scope for Stage 2A (planned for later stages):
 - Registration
 - Password reset
 - Business functionality
-- Full SPA CSRF integration
 - Database persistence for application users
 - Custom login page (Keycloak's default login page is used)
+- Returning to the originally requested protected route after login (home
+  is always the deterministic post-login destination in this stage)
 
-Do not treat any of the above as a Stage 2A defect - they are intentionally
+Do not treat any of the above as a Stage 2B defect - they are intentionally
 deferred.
 
 ## Repository layout
@@ -346,10 +395,17 @@ spring-keycloak-bff/
 ├── .github/workflows/   CI (backend mvn test, frontend npm ci/build/test)
 ├── backend/             Spring Boot BFF (Java 25, Maven)
 │   └── src/main/java/com/example/bff/
-│       ├── config/SecurityConfig.java       oauth2Login() + PKCE + default-deny baseline
+│       ├── config/SecurityConfig.java       oauth2Login() + PKCE + /api/** 401 entry point +
+│       │                                    disabled request cache + fixed post-login "/" redirect
 │       ├── config/OAuth2ClientConfig.java   manual ClientRegistrationRepository (bff-app)
-│       └── api/ProtectedController.java     GET /api/protected/hello
+│       ├── api/ProtectedController.java     GET /api/protected/hello
+│       └── api/AuthController.java          GET /api/auth/me (+ UserView, MeResponse DTOs)
 ├── frontend/            React + TypeScript + Vite (Login link, no OAuth library)
+│   └── src/
+│       ├── auth/SessionContext.tsx          loading/authenticated/anonymous/error session state
+│       ├── pages/HomePage.tsx               public "/" - display name + link to /protected
+│       ├── pages/ProtectedPage.tsx          "/protected" - UX-only guard, calls the real API
+│       └── App.tsx                          react-router routes, wraps SessionProvider
 ├── keycloak/import/     Reproducible bff-demo realm import (dev-only)
 ├── compose.yaml         docker compose up --build brings up the whole stack
 └── README.md

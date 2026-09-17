@@ -1,23 +1,35 @@
-import { BackendStatus } from "./BackendStatus";
+import { BrowserRouter, Route, Routes } from "react-router";
+import { SessionProvider } from "./auth/SessionContext";
+import { HomePage } from "./pages/HomePage";
+import { ProtectedPage } from "./pages/ProtectedPage";
 
 /**
- * Stage 2A: a plain same-origin link that performs a real top-level browser
- * navigation to the Spring Security OAuth2 authorization endpoint - proxied
- * to the backend BFF in both dev (Vite) and Docker (nginx). This is
- * intentionally NOT a fetch/axios call: the browser must follow the full
- * server-driven redirect chain (BFF -> Keycloak -> BFF callback) itself.
+ * Stage 2B: a minimal client-side router so {@code /protected} works as a
+ * route. This is UX-only routing - it does not participate in
+ * authentication. Session state is bootstrapped once here (via
+ * {@link SessionProvider}) and shared by every route through
+ * {@code useSession()}.
  *
- * React never sees an authorization code, token, or client secret as part
- * of this - only the resulting authenticated session cookie set by the BFF
- * once the flow completes.
+ * The Login control itself (rendered by {@code HomePage}/{@code
+ * ProtectedPage}) remains a plain same-origin link performing a real
+ * top-level browser navigation to the Spring Security OAuth2 authorization
+ * endpoint - see Stage 2A notes previously here. This is intentionally NOT
+ * a fetch/axios call: the browser must follow the full server-driven
+ * redirect chain (BFF -> Keycloak -> BFF callback) itself. React never sees
+ * an authorization code, token, or client secret as part of this - only the
+ * resulting authenticated session cookie set by the BFF once the flow
+ * completes.
  */
 function App() {
   return (
-    <main>
-      <h1>Spring Keycloak BFF</h1>
-      <BackendStatus />
-      <a href="/oauth2/authorization/bff-app">Login</a>
-    </main>
+    <SessionProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/protected" element={<ProtectedPage />} />
+        </Routes>
+      </BrowserRouter>
+    </SessionProvider>
   );
 }
 

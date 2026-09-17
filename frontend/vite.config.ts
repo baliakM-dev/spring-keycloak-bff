@@ -28,6 +28,12 @@ export default defineConfig({
       "/login": {
         target: backendTarget,
       },
+      // Stage 2C: POST /logout, proxied to the backend BFF. changeOrigin is
+      // intentionally NOT set here either, for the same reason as /oauth2
+      // and /login above.
+      "/logout": {
+        target: backendTarget,
+      },
     },
   },
   test: {

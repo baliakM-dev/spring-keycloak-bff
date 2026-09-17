@@ -100,6 +100,13 @@ services:
       # for the token/userinfo/JWK endpoints - never handed to the browser.
       KEYCLOAK_BACKEND_ISSUER_URI: http://keycloak:8080/realms/bff-demo
       OAUTH2_REDIRECT_URI: http://localhost:5173/login/oauth2/code/bff-app
+      # Fixed frontend home URI for the post-login redirect - an absolute,
+      # scheme-qualified literal, never derived from the request.
+      OAUTH2_POST_LOGIN_REDIRECT_URI: http://localhost:5173/
+      # Fixed frontend home URI for the post-logout redirect - must exactly
+      # match keycloak/import/bff-demo-realm.json's bff-app
+      # post.logout.redirect.uris attribute (trailing slash included).
+      OAUTH2_POST_LOGOUT_REDIRECT_URI: http://localhost:5173/
     depends_on:
       keycloak:
         condition: service_healthy

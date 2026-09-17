@@ -9,6 +9,8 @@ import org.springframework.security.oauth2.client.registration.InMemoryClientReg
 import org.springframework.security.oauth2.core.AuthorizationGrantType;
 import org.springframework.security.oauth2.core.ClientAuthenticationMethod;
 
+import java.util.Map;
+
 /**
  * Explicit, manual {@link ClientRegistrationRepository} for the {@code bff-app}
  * Keycloak client.
@@ -70,6 +72,15 @@ public class OAuth2ClientConfig {
                 // endpoint. Used only for ID token issuer validation - does not
                 // trigger any HTTP call when set directly on the builder.
                 .issuerUri(browserIssuerUri)
+                // Stage 2C: not fetched via OIDC discovery (this ClientRegistration is
+                // built manually, never via issuer-uri autodiscovery - see class Javadoc)
+                // so the end-session endpoint must be supplied explicitly here.
+                // OidcClientInitiatedLogoutSuccessHandler.endSessionEndpoint() reads this
+                // exact metadata key ("end_session_endpoint"). Browser-facing, like
+                // authorizationUri above - the browser is redirected here directly by
+                // Keycloak's logout redirect chain.
+                .providerConfigurationMetadata(
+                        Map.of("end_session_endpoint", browserIssuerUri + "/protocol/openid-connect/logout"))
                 .userNameAttributeName("preferred_username")
                 .clientName("bff-app")
                 .build();
