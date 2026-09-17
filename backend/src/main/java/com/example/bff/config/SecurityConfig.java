@@ -2,15 +2,19 @@ package com.example.bff.config;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpStatus;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
+import org.springframework.security.config.annotation.web.configurers.RequestCacheConfigurer;
 import org.springframework.security.oauth2.client.registration.ClientRegistrationRepository;
 import org.springframework.security.oauth2.client.web.DefaultOAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestResolver;
 import org.springframework.security.oauth2.client.web.OAuth2AuthorizationRequestCustomizers;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.authentication.HttpStatusEntryPoint;
+import org.springframework.security.web.servlet.util.matcher.PathPatternRequestMatcher;
 
 /**
- * Stage 2A security configuration.
+ * Stage 2A/2B security configuration.
  *
  * <p>Adds framework-native {@code oauth2Login()} (OAuth2/OIDC Authorization
  * Code flow against Keycloak) on top of the Stage 1 default-deny baseline.
@@ -22,9 +26,21 @@ import org.springframework.security.web.SecurityFilterChain;
  * validation).
  *
  * <ul>
- *   <li>{@code /api/public/**} and {@code /actuator/health} remain public.</li>
+ *   <li>{@code /api/public/**}, {@code /api/auth/me}, and
+ *       {@code /actuator/health} remain public at the filter-chain level.
+ *       {@code /api/auth/me} still enforces its own authentication check
+ *       inside the controller (see {@code AuthController}), so it can return
+ *       a bare {@code 401} JSON body to an anonymous caller instead of the
+ *       redirect-to-Keycloak behavior below.</li>
  *   <li>Everything else still requires authentication - now reachable via
- *       OAuth2/OIDC login against Keycloak.</li>
+ *       OAuth2/OIDC login against Keycloak. Anonymous requests to other
+ *       {@code /api/**} paths (e.g. {@code /api/protected/hello}) receive a
+ *       bare {@code 401} via a request-matcher-scoped
+ *       {@link org.springframework.security.web.authentication.HttpStatusEntryPoint},
+ *       rather than Spring Security's default redirect to
+ *       {@code /oauth2/authorization/bff-app}. Real browser navigation to
+ *       that endpoint is unaffected - it is handled upstream by
+ *       {@code OAuth2AuthorizationRequestRedirectFilter}.</li>
  *   <li>Successful login establishes a server-side Spring application
  *       session; OAuth2 access/refresh tokens are held server-side only.
  *       No custom {@code OAuth2AuthorizedClientService}/{@code Repository}
@@ -37,6 +53,10 @@ import org.springframework.security.web.SecurityFilterChain;
  *       an application-memory map keyed by (registrationId, principal name),
  *       not the {@code HttpSession}. Tokens still never reach the browser
  *       either way.</li>
+ *   <li>The HTTP request cache is disabled and the post-login redirect
+ *       target is fixed to {@code "/"}, so login always returns to the
+ *       frontend home route regardless of which URL triggered
+ *       authentication.</li>
  * </ul>
  *
  * <p>Spring Security's default CSRF protection is left untouched. The OAuth2
@@ -51,11 +71,36 @@ public class SecurityConfig {
     public SecurityFilterChain securityFilterChain(
             HttpSecurity http, ClientRegistrationRepository clientRegistrationRepository) throws Exception {
         http.authorizeHttpRequests(authorize -> authorize
-                        .requestMatchers("/api/public/**", "/actuator/health").permitAll()
+                        .requestMatchers("/api/public/**", "/api/auth/me", "/actuator/health")
+                        .permitAll()
                         .anyRequest().authenticated())
-                .oauth2Login(oauth2 -> oauth2.authorizationEndpoint(
-                        endpoint -> endpoint.authorizationRequestResolver(
-                                authorizationRequestResolver(clientRegistrationRepository))));
+                // /api/auth/me is permitAll() above (Stage 2B): it performs its own
+                // authentication check on the resolved principal so it can return a
+                // bare 401 JSON body to an anonymous caller instead of participating
+                // in the redirect-to-Keycloak behavior below. This entry point only
+                // governs OTHER /api/** paths that are still gated by
+                // anyRequest().authenticated() (currently /api/protected/hello):
+                // anonymous requests to those get a bare 401 instead of Spring
+                // Security's default redirect to the OAuth2 authorization endpoint.
+                // Real browser navigation to /oauth2/authorization/bff-app is
+                // unaffected - that request is handled by
+                // OAuth2AuthorizationRequestRedirectFilter, upstream of this
+                // authentication entry point.
+                .exceptionHandling(exceptionHandling -> exceptionHandling.defaultAuthenticationEntryPointFor(
+                        new HttpStatusEntryPoint(HttpStatus.UNAUTHORIZED),
+                        PathPatternRequestMatcher.pathPattern("/api/**")))
+                // Disabled so an anonymous hit on a protected /api/** path can never
+                // populate a saved-request session attribute that would otherwise
+                // hijack the post-login redirect target computed below.
+                .requestCache(RequestCacheConfigurer::disable)
+                .oauth2Login(oauth2 -> oauth2
+                        .authorizationEndpoint(endpoint -> endpoint.authorizationRequestResolver(
+                                authorizationRequestResolver(clientRegistrationRepository)))
+                        // Fixed post-login destination: the frontend origin's "/",
+                        // never derived from Host/X-Forwarded-* headers or a request
+                        // parameter. alwaysUse=true makes this unconditional even if a
+                        // saved request were somehow present.
+                        .defaultSuccessUrl("/", true));
         return http.build();
     }
 
