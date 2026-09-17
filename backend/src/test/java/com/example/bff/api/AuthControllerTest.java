@@ -66,4 +66,32 @@ class AuthControllerTest {
                 .andExpect(jsonPath("$.user.id").value("user-789"))
                 .andExpect(jsonPath("$.user.displayName").value("user-789"));
     }
+
+    /**
+     * Stage 2C: {@code GET /api/auth/csrf} contract - 200, the exact {token,
+     * headerName, parameterName} shape (sourced from the resolved {@code
+     * CsrfToken}, never hardcoded), and {@code Cache-Control: no-store}.
+     * Reachable anonymously - it is {@code permitAll()} in {@code
+     * SecurityConfig} and performs no authentication check of its own.
+     */
+    @Test
+    @WithAnonymousUser
+    void csrfEndpointReturnsTokenShapeWithNoStoreForAnonymousCaller() throws Exception {
+        mockMvc.perform(get("/api/auth/csrf"))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.headerName").value("X-CSRF-TOKEN"))
+                .andExpect(jsonPath("$.parameterName").value("_csrf"));
+    }
+
+    @Test
+    void csrfEndpointReturnsTokenShapeForAuthenticatedCallerToo() throws Exception {
+        mockMvc.perform(get("/api/auth/csrf").with(oidcLogin()))
+                .andExpect(status().isOk())
+                .andExpect(header().string("Cache-Control", "no-store"))
+                .andExpect(jsonPath("$.token").isNotEmpty())
+                .andExpect(jsonPath("$.headerName").isNotEmpty())
+                .andExpect(jsonPath("$.parameterName").isNotEmpty());
+    }
 }

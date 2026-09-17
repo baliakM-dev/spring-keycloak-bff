@@ -1,4 +1,4 @@
-import { act, render, screen } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SessionProvider, useSession } from "./SessionContext";
 
@@ -63,5 +63,84 @@ describe("SessionProvider", () => {
     });
 
     expect(screen.getByTestId("session-status")).toHaveTextContent("anonymous");
+  });
+
+  it("re-checks the session on a bfcache restoration (pageshow with persisted=true), not just focus/visibilitychange", async () => {
+    let callCount = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => {
+        callCount += 1;
+        // First call (mount bootstrap): authenticated - simulates a page
+        // that was rendered and then frozen into bfcache while signed in.
+        // Second call (pageshow/persisted re-check): anonymous - simulates
+        // the session having actually ended (e.g. a real logout navigation)
+        // while this frozen page sat in bfcache.
+        const body =
+          callCount === 1
+            ? { authenticated: true, user: { id: "user-1", displayName: "Jane Doe" } }
+            : { authenticated: false };
+        return Promise.resolve(
+          new Response(JSON.stringify(body), { status: callCount === 1 ? 200 : 401 }),
+        );
+      }),
+    );
+
+    render(
+      <SessionProvider>
+        <Probe onReady={() => {}} />
+      </SessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("session-status")).toHaveTextContent("authenticated"));
+
+    // Simulate the browser restoring this page from bfcache. jsdom has no
+    // native PageTransitionEvent, so a plain Event is dispatched with
+    // `persisted` attached directly - the handler only reads that property.
+    const pageshowEvent = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(pageshowEvent, "persisted", { value: true });
+    // Synchronous act: flushes only the synchronous setSession({status:
+    // "loading"}) load(true) performs before it starts the fetch - not the
+    // fetch's own (already-resolved-mock) promise, so the transient
+    // "loading" state below is actually observable.
+    act(() => {
+      window.dispatchEvent(pageshowEvent);
+    });
+
+    // load(true) is used for this path, so the stale authenticated content
+    // must not remain on screen while the re-check is in flight.
+    expect(screen.getByTestId("session-status")).toHaveTextContent("loading");
+
+    await waitFor(() => expect(screen.getByTestId("session-status")).toHaveTextContent("anonymous"));
+    expect(callCount).toBe(2);
+  });
+
+  it("does not re-check on an ordinary pageshow (persisted=false) - only on bfcache restoration", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(
+        new Response(JSON.stringify({ authenticated: true, user: { id: "user-1", displayName: "Jane Doe" } }), {
+          status: 200,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <SessionProvider>
+        <Probe onReady={() => {}} />
+      </SessionProvider>,
+    );
+
+    await waitFor(() => expect(screen.getByTestId("session-status")).toHaveTextContent("authenticated"));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    const pageshowEvent = new Event("pageshow") as PageTransitionEvent;
+    Object.defineProperty(pageshowEvent, "persisted", { value: false });
+    await act(async () => {
+      window.dispatchEvent(pageshowEvent);
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(screen.getByTestId("session-status")).toHaveTextContent("authenticated");
   });
 });

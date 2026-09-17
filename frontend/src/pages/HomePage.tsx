@@ -1,6 +1,7 @@
 import { Link } from "react-router";
 import { BackendStatus } from "../BackendStatus";
 import { useSession } from "../auth/SessionContext";
+import { LogoutButton } from "../auth/LogoutButton";
 
 /**
  * Public home page ({@code /}). Renders the same full-navigation Login
@@ -33,6 +34,7 @@ export function HomePage() {
         <div data-testid="session-authenticated">
           <p>Signed in as {session.user.displayName}</p>
           <Link to="/protected">Go to protected page</Link>
+          <LogoutButton />
         </div>
       )}
     </main>

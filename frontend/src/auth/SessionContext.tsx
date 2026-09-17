@@ -114,6 +114,31 @@ export function SessionProvider({ children }: { children: ReactNode }) {
     };
   }, [load]);
 
+  // Stage 2C: re-check on bfcache restoration (browser Back/Forward after a
+  // real navigation, e.g. the full-page navigation logout performs). A
+  // `pageshow` event with `persisted: true` fires when the browser instantly
+  // repaints a frozen, previously-rendered page from its back/forward cache
+  // - including whatever "authenticated" UI was on screen before the user
+  // navigated away - without re-running any of this component's mount
+  // logic. Neither `focus` nor `visibilitychange` are guaranteed to fire in
+  // this case: the tab need not have lost focus or become hidden for the
+  // browser to serve a bfcache entry (e.g. Back within the same, still-
+  // focused, still-visible tab). `load(true)` (not `load(false)`) is used
+  // deliberately: it forces an immediate "loading" state, hiding the
+  // stale bfcache-painted content while the re-check is in flight, rather
+  // than leaving stale authenticated UI on screen until the fetch resolves.
+  useEffect(() => {
+    const handlePageShow = (event: PageTransitionEvent) => {
+      if (event.persisted) {
+        load(true);
+      }
+    };
+    window.addEventListener("pageshow", handlePageShow);
+    return () => {
+      window.removeEventListener("pageshow", handlePageShow);
+    };
+  }, [load]);
+
   const refresh = useCallback(() => load(false), [load]);
 
   const reportUnauthorized = useCallback(() => {

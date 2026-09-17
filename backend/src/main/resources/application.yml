@@ -17,6 +17,32 @@ bff:
     # (never via the browser).
     backend-issuer-uri: ${KEYCLOAK_BACKEND_ISSUER_URI:http://localhost:8081/realms/bff-demo}
     redirect-uri: ${OAUTH2_REDIRECT_URI:http://localhost:5173/login/oauth2/code/bff-app}
+    # Fixed, trusted frontend home URI for the post-LOGIN redirect. Same
+    # rationale and same confirmed vulnerability class as
+    # post-logout-redirect-uri below: the previous "/" (relative) value was
+    # expanded by the servlet container into an absolute Location using the
+    # request's Host header (forwarded verbatim by the proxy, no allowlist),
+    # confirmed end-to-end to redirect straight to an attacker-chosen origin
+    # immediately after a real, successful login - worse than the logout
+    # case, since there is no downstream party (like Keycloak's own
+    # allowlist) to reject it. An absolute, scheme-qualified literal here is
+    # returned verbatim by Spring Security's DefaultRedirectStrategy
+    # (confirmed from source: calculateRedirectUrl short-circuits to `return
+    # url` for any already-absolute URL when contextRelative is false, which
+    # it is here) - no request data is involved in computing it at all.
+    post-login-redirect-uri: ${OAUTH2_POST_LOGIN_REDIRECT_URI:http://localhost:5173/}
+    # Fixed, trusted frontend home URI for the post-logout redirect Spring
+    # sends to Keycloak. Must exactly match (including the trailing slash)
+    # the `post.logout.redirect.uris` attribute registered on the `bff-app`
+    # Keycloak client (see keycloak/import/bff-demo-realm.json) - Keycloak
+    # validates this with an exact string match. Deliberately NOT derived
+    # from the request (e.g. Spring Security's "{baseUrl}" template, which
+    # resolves from request.getServerName()/getServerPort() - themselves
+    # derived from the inbound Host header, which this app's proxy forwards
+    # verbatim via $http_host with no allowlist): a forged Host header was
+    # confirmed end-to-end to redirect the post-logout target to an
+    # attacker-chosen origin when "{baseUrl}/" was used here.
+    post-logout-redirect-uri: ${OAUTH2_POST_LOGOUT_REDIRECT_URI:http://localhost:5173/}
     # LOCAL DEVELOPMENT ONLY default - overridden by KEYCLOAK_CLIENT_SECRET
     # in compose.yaml. Never a real/production secret.
     client-secret: ${KEYCLOAK_CLIENT_SECRET:dev-only-placeholder-secret-CHANGE-ME}

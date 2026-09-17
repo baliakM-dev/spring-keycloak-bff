@@ -72,6 +72,43 @@ describe("HomePage", () => {
     expect(screen.queryByRole("link", { name: "Login" })).not.toBeInTheDocument();
   });
 
+  it("shows the Logout control only for an authenticated session, never for an anonymous one", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/auth/me")) {
+          return Promise.resolve(
+            jsonResponse({ authenticated: true, user: { id: "user-1", displayName: "Jane Doe" } }, 200),
+          );
+        }
+        return Promise.resolve(jsonResponse({ message: "ok" }, 200));
+      }),
+    );
+
+    renderHome();
+
+    await waitFor(() => expect(screen.getByRole("button", { name: "Log out" })).toBeInTheDocument());
+  });
+
+  it("never renders the Logout control for an anonymous session", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/auth/me")) {
+          return Promise.resolve(jsonResponse({ authenticated: false }, 401));
+        }
+        return Promise.resolve(jsonResponse({ message: "ok" }, 200));
+      }),
+    );
+
+    renderHome();
+
+    await screen.findByRole("link", { name: "Login" });
+    expect(screen.queryByRole("button", { name: "Log out" })).not.toBeInTheDocument();
+  });
+
   it("shows a Login control that performs a full navigation when signed out", async () => {
     vi.stubGlobal(
       "fetch",
